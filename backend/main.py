@@ -99,7 +99,7 @@ def _crawl_and_generate(url: str, site_name: str | None, summary: str | None):
     from generator import GeneratorOptions, generate_llms_txt
 
     logger.info("Starting crawl and generate for url=%s", url)
-    opts = CrawlOptions(max_pages=100, crawl_delay=0.3, timeout=15)
+    opts = CrawlOptions(max_pages=10, crawl_delay=0.3, timeout=15)
     try:
         pages = crawl_site(url, options=opts)
     except Exception as e:

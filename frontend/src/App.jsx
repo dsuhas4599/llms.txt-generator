@@ -10,6 +10,11 @@ function App() {
   const [addUrls, setAddUrls] = useState('')
   const [adding, setAdding] = useState(false)
   const [error, setError] = useState(null)
+  const [viewingSite, setViewingSite] = useState(null)
+  const [viewingContent, setViewingContent] = useState(null)
+  const [viewingLoading, setViewingLoading] = useState(false)
+  const [panelWidth, setPanelWidth] = useState(480)
+  const [isResizing, setIsResizing] = useState(false)
 
   useEffect(() => {
     fetch(`${API_BASE}/api/sites`)
@@ -119,89 +124,170 @@ function App() {
     }
   }
 
-  function handleDownloadSite(siteId) {
-    fetch(`${API_BASE}/api/sites/${siteId}/llms.txt`)
+  function handleShowSite(site) {
+    setViewingSite(site)
+    setViewingContent(null)
+    setViewingLoading(true)
+    setError(null)
+    fetch(`${API_BASE}/api/sites/${site.id}/llms.txt`)
       .then((r) => {
         if (!r.ok) throw new Error('No llms.txt yet')
         return r.text()
       })
-      .then((text) => {
-        const blob = new Blob([text], { type: 'text/plain;charset=utf-8' })
-        const a = document.createElement('a')
-        a.href = URL.createObjectURL(blob)
-        a.download = 'llms.txt'
-        a.click()
-        URL.revokeObjectURL(a.href)
-      })
+      .then(setViewingContent)
       .catch((err) => setError(err.message))
+      .finally(() => setViewingLoading(false))
+  }
+
+  function handleClosePanel() {
+    setViewingSite(null)
+    setViewingContent(null)
+  }
+
+  useEffect(() => {
+    if (!isResizing) return
+    const minW = 280
+    const maxW = Math.min(800, window.innerWidth * 0.85)
+    document.body.style.cursor = 'col-resize'
+    document.body.style.userSelect = 'none'
+    function onMove(e) {
+      const w = window.innerWidth - e.clientX
+      setPanelWidth(Math.min(maxW, Math.max(minW, w)))
+    }
+    function onUp() {
+      setIsResizing(false)
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+    }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+    return () => {
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+    }
+  }, [isResizing])
+
+  function handleCopyFromPanel() {
+    if (!viewingContent) return
+    navigator.clipboard.writeText(viewingContent).then(() => setError(null))
+  }
+
+  function handleDownloadFromPanel() {
+    if (!viewingContent) return
+    const blob = new Blob([viewingContent], { type: 'text/plain;charset=utf-8' })
+    const a = document.createElement('a')
+    a.href = URL.createObjectURL(blob)
+    a.download = 'llms.txt'
+    a.click()
+    URL.revokeObjectURL(a.href)
   }
 
   return (
-    <div className="app">
-      <header className="header">
-        <h1>llms.txt Generator</h1>
-        <p className="tagline">Generate <a href="https://llmstxt.org/" target="_blank" rel="noopener noreferrer">llms.txt</a> files for your monitored sites</p>
-      </header>
+    <div className="app-layout">
+      <div className="app-main">
+        <header className="header">
+          <h1>llms.txt Generator</h1>
+          <p className="tagline">Generate <a href="https://llmstxt.org/" target="_blank" rel="noopener noreferrer">llms.txt</a> files for your monitored sites</p>
+        </header>
 
-      {error && (
-        <div className="error" role="alert">
-          {error}
-        </div>
-      )}
-
-      <section className="sites">
-        <h2>Your sites</h2>
-        <form onSubmit={handleAddSites} className="form-inline">
-          <input
-            type="text"
-            placeholder="https://example.com, https://other.com"
-            value={addUrls}
-            onChange={(e) => setAddUrls(e.target.value)}
-            disabled={adding}
-            className="input-inline input-urls"
-          />
-          <button type="submit" className="btn-secondary" disabled={adding || !addUrls.trim()}>
-            {adding ? 'Adding…' : 'Add & crawl'}
-          </button>
-        </form>
-        <p className="muted hint">Enter one or more URLs (comma-separated). Sites are added with monitoring enabled and crawled immediately.</p>
-        {sitesLoading ? (
-          <p className="muted">Loading…</p>
-        ) : sites.length === 0 ? (
-          <p className="muted">No sites yet. Add URL(s) above and click Add & crawl.</p>
-        ) : (
-          <ul className="sites-list">
-            {sites.map((s) => (
-              <li key={s.id} className="site-row">
-                <div className="site-info">
-                  <span className="site-url">{s.root_url}</span>
-                  {s.last_generated_at && (
-                    <span className="site-meta">Updated {new Date(s.last_generated_at).toLocaleDateString()}</span>
-                  )}
-                </div>
-                <div className="site-actions">
-                  <button
-                    type="button"
-                    className="btn-secondary btn-sm"
-                    onClick={() => handleRefresh(s.id)}
-                    disabled={crawlingIds.includes(s.id)}
-                  >
-                    {crawlingIds.includes(s.id) ? 'Crawling…' : 'Refresh'}
-                  </button>
-                  <button
-                    type="button"
-                    className="btn-secondary btn-sm"
-                    onClick={() => handleDownloadSite(s.id)}
-                    disabled={!s.last_generated_at}
-                  >
-                    Download
-                  </button>
-                </div>
-              </li>
-            ))}
-          </ul>
+        {error && (
+          <div className="error" role="alert">
+            {error}
+          </div>
         )}
-      </section>
+
+        <section className="sites">
+          <h2>Your sites</h2>
+          <form onSubmit={handleAddSites} className="form-inline">
+            <input
+              type="text"
+              placeholder="https://example.com, https://other.com"
+              value={addUrls}
+              onChange={(e) => setAddUrls(e.target.value)}
+              disabled={adding}
+              className="input-inline input-urls"
+            />
+            <button type="submit" className="btn-secondary" disabled={adding || !addUrls.trim()}>
+              {adding ? 'Adding…' : 'Add & crawl'}
+            </button>
+          </form>
+          <p className="muted hint">Enter one or more URLs (comma-separated). Sites are added with monitoring enabled and crawled immediately.</p>
+          {sitesLoading ? (
+            <p className="muted">Loading…</p>
+          ) : sites.length === 0 ? (
+            <p className="muted">No sites yet. Add URL(s) above and click Add & crawl.</p>
+          ) : (
+            <ul className="sites-list">
+              {sites.map((s) => (
+                <li key={s.id} className="site-row">
+                  <div className="site-info">
+                    <span className="site-url">{s.root_url}</span>
+                    {s.last_generated_at && (
+                      <span className="site-meta">Updated {new Date(s.last_generated_at).toLocaleDateString()}</span>
+                    )}
+                  </div>
+                  <div className="site-actions">
+                    <button
+                      type="button"
+                      className="btn-secondary btn-sm"
+                      onClick={() => handleRefresh(s.id)}
+                      disabled={crawlingIds.includes(s.id)}
+                    >
+                      {crawlingIds.includes(s.id) ? 'Crawling…' : 'Refresh'}
+                    </button>
+                    {s.last_generated_at && (
+                      <button
+                        type="button"
+                        className="btn-secondary btn-sm"
+                        onClick={() => handleShowSite(s)}
+                      >
+                        Show
+                      </button>
+                    )}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      </div>
+
+      <aside
+        className={`panel ${viewingSite ? 'panel-open' : ''} ${isResizing ? 'panel-resizing' : ''}`}
+        style={viewingSite ? { width: panelWidth } : undefined}
+      >
+        {viewingSite && (
+          <>
+            <div
+              className="panel-resize-handle"
+              onMouseDown={(e) => { e.preventDefault(); setIsResizing(true) }}
+            />
+            <div className="panel-header">
+              <span className="panel-url">{viewingSite.root_url}</span>
+              <button type="button" className="btn-close" onClick={handleClosePanel} aria-label="Close">
+                ×
+              </button>
+            </div>
+            <div className="panel-actions">
+              <button type="button" className="btn-secondary btn-sm" onClick={handleCopyFromPanel} disabled={!viewingContent}>
+                Copy
+              </button>
+              <button type="button" className="btn-secondary btn-sm" onClick={handleDownloadFromPanel} disabled={!viewingContent}>
+                Download
+              </button>
+            </div>
+            <div className="panel-content">
+              {viewingLoading ? (
+                <p className="muted">Loading…</p>
+              ) : (
+                <pre className="output"><code>{viewingContent}</code></pre>
+              )}
+            </div>
+          </>
+        )}
+      </aside>
     </div>
   )
 }

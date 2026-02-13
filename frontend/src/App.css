@@ -1,9 +1,110 @@
-.app {
+.app-layout {
+  display: flex;
+  min-height: 100vh;
   width: 100%;
+}
+
+.app-main {
+  flex: 1;
+  min-width: 0;
   max-width: 720px;
   margin: 0 auto;
   padding: 2rem 1rem;
   text-align: left;
+  width: 100%;
+}
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  width: 0;
+  overflow: hidden;
+  background: var(--code-bg, #1a1a1a);
+  border-left: 1px solid var(--border);
+  transition: width 0.3s ease;
+}
+
+.panel-open {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  height: 100vh;
+  min-width: 280px;
+}
+
+.panel-resizing {
+  transition: none;
+}
+
+.panel-resize-handle {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 8px;
+  cursor: col-resize;
+  z-index: 1;
+}
+
+.panel-resize-handle:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 1rem;
+  background: var(--secondary-bg, #252525);
+  border-bottom: 1px solid var(--border);
+}
+
+.panel-url {
+  font-size: 0.85rem;
+  color: var(--muted);
+  word-break: break-all;
+  flex: 1;
+  min-width: 0;
+}
+
+.btn-close {
+  flex-shrink: 0;
+  width: 2rem;
+  height: 2rem;
+  padding: 0;
+  font-size: 1.5rem;
+  line-height: 1;
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  border-radius: 4px;
+}
+
+.btn-close:hover {
+  color: var(--text);
+  background: var(--secondary-hover);
+}
+
+.panel-actions {
+  display: flex;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.panel-content {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 1rem;
+}
+
+.panel-content .output {
+  margin: 0;
+  font-size: 0.8rem;
 }
 
 .header {

@@ -25,7 +25,7 @@ class PageInfo:
 @dataclass
 class CrawlOptions:
     """Options for crawl_site."""
-    max_pages: int = 100
+    max_pages: int = 10
     timeout: int = 10
     crawl_delay: float = 0.5
     respect_robots: bool = True
