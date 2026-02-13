@@ -272,5 +272,6 @@ def sites_get_due_for_crawl() -> list[dict]:
 
 
 def site_update_next_crawl_at(site_id: int, next_at: str) -> None:
+    now = _now()
     with get_conn() as conn:
-        _run(conn, "UPDATE sites SET next_crawl_at = %s, updated_at = %s WHERE id = %s", (next_at, next_at, site_id))
+        _run(conn, "UPDATE sites SET next_crawl_at = %s, updated_at = %s WHERE id = %s", (next_at, now, site_id))
