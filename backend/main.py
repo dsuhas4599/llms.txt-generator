@@ -4,6 +4,14 @@ import re
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+from dotenv import load_dotenv
+from fastapi import BackgroundTasks, FastAPI, Header, HTTPException, Path as PathParam
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, PlainTextResponse
+from pydantic import BaseModel, field_validator
+
+import db
+
 logger = logging.getLogger(__name__)
 
 SCHEDULE_INTERVALS = {
@@ -17,17 +25,9 @@ def _next_crawl_at(schedule: str | None) -> str:
     delta = SCHEDULE_INTERVALS.get((schedule or "daily").lower(), SCHEDULE_INTERVALS["daily"])
     return (datetime.now(timezone.utc) + delta).isoformat()
 
-from dotenv import load_dotenv
-from fastapi import BackgroundTasks, FastAPI, Header, HTTPException, Path as PathParam, Query
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, PlainTextResponse
-from pydantic import BaseModel, field_validator
-
 _backend_dir = Path(__file__).resolve().parent
 load_dotenv(_backend_dir / ".env")
 load_dotenv(_backend_dir.parent / ".env")
-
-import db
 
 app = FastAPI(
     title="llms.txt Generator",
@@ -46,47 +46,6 @@ app.add_middleware(
 
 URL_PATTERN = re.compile(r"^https?://[^\s/$.?#].[^\s]*$", re.IGNORECASE)
 MAX_URL_LEN = 2048
-MAX_SITE_NAME_LEN = 200
-MAX_SUMMARY_LEN = 2000
-
-
-class GenerateRequest(BaseModel):
-    url: str
-    site_name: str | None = None
-    summary: str | None = None
-    save: bool = False
-
-    @field_validator("url")
-    @classmethod
-    def url_valid(cls, v: str) -> str:
-        v = v.strip()
-        if not v:
-            raise ValueError("URL is required")
-        if len(v) > MAX_URL_LEN:
-            raise ValueError(f"URL must be at most {MAX_URL_LEN} characters")
-        if not URL_PATTERN.match(v):
-            raise ValueError("URL must start with http:// or https:// and be valid")
-        return v
-
-    @field_validator("site_name")
-    @classmethod
-    def site_name_valid(cls, v: str | None) -> str | None:
-        if v is None:
-            return None
-        v = v.strip() or None
-        if v and len(v) > MAX_SITE_NAME_LEN:
-            raise ValueError(f"site_name must be at most {MAX_SITE_NAME_LEN} characters")
-        return v
-
-    @field_validator("summary")
-    @classmethod
-    def summary_valid(cls, v: str | None) -> str | None:
-        if v is None:
-            return None
-        v = v.strip() or None
-        if v and len(v) > MAX_SUMMARY_LEN:
-            raise ValueError(f"summary must be at most {MAX_SUMMARY_LEN} characters")
-        return v
 
 
 class GenerateResponse(BaseModel):
@@ -118,11 +77,6 @@ def _crawl_and_generate(url: str, site_name: str | None, summary: str | None):
     return pages, content
 
 
-def _generate_llms_txt(url: str, site_name: str | None, summary: str | None) -> str:
-    _, content = _crawl_and_generate(url, site_name, summary)
-    return content
-
-
 def _crawl_site_and_save(site_id: int) -> tuple[bool, str]:
     site = db.site_get_by_id(site_id)
     if not site:
@@ -152,44 +106,14 @@ def startup():
 
 @app.get("/api/health")
 def health():
+    """Health check. Returns service status, environment, and current UTC timestamp.
+    Use for liveness probes and monitoring."""
     return {
         "ok": True,
         "service": "llms-txt-generator",
         "env": os.getenv("ENV", "development"),
         "timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
     }
-
-
-@app.post("/api/generate", response_model=GenerateResponse)
-def generate_post(body: GenerateRequest):
-    pages, content = _crawl_and_generate(body.url, body.site_name, body.summary)
-    site_id = None
-    if body.save:
-        logger.info("Saving to site: url=%s", body.url)
-        site = db.site_get_by_url(body.url)
-        if not site:
-            site = db.site_create(root_url=body.url, name=body.site_name, monitor_schedule="daily")
-        site_id = site["id"]
-        raw_pages = [{"url": getattr(p, "url", ""), "title": getattr(p, "title", ""), "description": getattr(p, "description", "")} for p in pages]
-        crawl_result_id = db.crawl_result_save(site_id, len(raw_pages), raw_pages)
-        db.llms_txt_save(site_id, crawl_result_id, content)
-        next_at = _next_crawl_at(site.get("monitor_schedule"))
-        db.site_update_next_crawl_at(site_id, next_at)
-        logger.info("Saved to site_id=%d, crawl_result_id=%d, next_crawl_at=%s", site_id, crawl_result_id, next_at)
-    return GenerateResponse(content=content, site_id=site_id)
-
-
-@app.get("/api/generate", response_model=GenerateResponse)
-def generate_get(
-    url: str = Query(..., description="Website URL to crawl and generate llms.txt for"),
-    site_name: str | None = Query(None, max_length=MAX_SITE_NAME_LEN),
-    summary: str | None = Query(None, max_length=MAX_SUMMARY_LEN),
-):
-    url = url.strip()
-    if not url or len(url) > MAX_URL_LEN or not URL_PATTERN.match(url):
-        raise HTTPException(status_code=422, detail="Invalid or missing url query parameter")
-    content = _generate_llms_txt(url, site_name, summary)
-    return GenerateResponse(content=content)
 
 
 class SiteCreateRequest(BaseModel):
@@ -207,7 +131,11 @@ class SiteCreateRequest(BaseModel):
 
 
 @app.post("/api/sites")
-def sites_create(body: SiteCreateRequest):
+def sites_create(background_tasks: BackgroundTasks, body: SiteCreateRequest):
+    """Create a new monitored site. Validates URL, creates the site record, and queues an
+    initial crawl in the background. Returns immediately with the created site.
+    Raises 409 if the URL already exists. Crawl runs async; use GET /api/sites to see
+    when last_generated_at appears."""
     try:
         existing = db.site_get_by_url(body.url)
         if existing:
@@ -219,6 +147,7 @@ def sites_create(body: SiteCreateRequest):
         )
         if not site or "id" not in site:
             raise HTTPException(status_code=502, detail="Database error: failed to create site")
+        background_tasks.add_task(_crawl_site_and_save, site["id"])
         return {"id": site["id"], "root_url": site["root_url"], "name": site["name"], "created_at": site["created_at"]}
     except HTTPException:
         raise
@@ -228,23 +157,15 @@ def sites_create(body: SiteCreateRequest):
 
 @app.get("/api/sites")
 def sites_list():
+    """List all monitored sites. Each site includes last_crawl_at and last_generated_at
+    from the most recent crawl. Ordered by updated_at descending."""
     return db.site_get_all()
-
-
-@app.get("/api/sites/{site_id}")
-def site_get(site_id: int = PathParam(..., ge=1)):
-    site = db.site_get_by_id(site_id)
-    if not site:
-        raise HTTPException(status_code=404, detail="Site not found")
-    latest = db.llms_txt_get_latest(site_id)
-    out = dict(site)
-    if latest:
-        out["latest_content_preview"] = (latest["content"] or "")[:200]
-    return out
 
 
 @app.get("/api/sites/{site_id}/llms.txt", response_class=PlainTextResponse)
 def site_llms_txt(site_id: int = PathParam(..., ge=1)):
+    """Return the latest llms.txt content for a site as plain text.
+    Raises 404 if the site does not exist or no llms.txt has been generated yet."""
     site = db.site_get_by_id(site_id)
     if not site:
         raise HTTPException(status_code=404, detail="Site not found")
@@ -256,6 +177,9 @@ def site_llms_txt(site_id: int = PathParam(..., ge=1)):
 
 @app.post("/api/sites/{site_id}/crawl", response_model=GenerateResponse)
 def site_crawl(site_id: int = PathParam(..., ge=1)):
+    """Manually trigger a crawl for a site (Refresh button). Crawls the site, generates
+    llms.txt, saves to DB, and updates next_crawl_at. Returns the generated content.
+    Blocks until the crawl completes. Raises 404 if site not found, 502 on crawl failure."""
     logger.info("Crawl requested for site_id=%d", site_id)
     site = db.site_get_by_id(site_id)
     if not site:
@@ -276,6 +200,9 @@ def cron_crawl_due(
     background_tasks: BackgroundTasks,
     x_cron_secret: str | None = Header(None, alias="X-Cron-Secret"),
 ):
+    """Cron endpoint for scheduled re-crawls. Requires X-Cron-Secret header matching CRON_SECRET.
+    Fetches all sites due for crawl (next_crawl_at is null or in the past), queues each as a
+    background task, and returns immediately with queued count. Call from cron-job.org or similar."""
     expected = os.getenv("CRON_SECRET", "").strip()
     if not expected or not x_cron_secret or x_cron_secret != expected:
         raise HTTPException(status_code=401, detail="Invalid or missing cron secret")
@@ -292,6 +219,8 @@ _frontend_dist = _backend_dir.parent / "frontend" / "dist"
 if _frontend_dist.exists():
     @app.get("/{full_path:path}")
     def serve_spa(full_path: str):
+        """Serve the built React SPA. Returns static files when they exist; otherwise returns
+        index.html for client-side routing. API routes under /api/ are handled by FastAPI."""
         if full_path.startswith("api/"):
             raise HTTPException(status_code=404, detail="Not found")
         file_path = _frontend_dist / full_path

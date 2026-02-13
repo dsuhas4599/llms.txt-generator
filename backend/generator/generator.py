@@ -1,10 +1,10 @@
 """Generate llms.txt markdown from PageInfo. Spec: https://llmstxt.org/"""
 import logging
 from collections import defaultdict
-
-logger = logging.getLogger(__name__)
 from dataclasses import dataclass
 from urllib.parse import urlparse
+
+logger = logging.getLogger(__name__)
 
 try:
     from crawler import PageInfo

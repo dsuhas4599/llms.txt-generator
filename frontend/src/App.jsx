@@ -17,6 +17,22 @@ function App() {
   const [isResizing, setIsResizing] = useState(false)
 
   useEffect(() => {
+    if (crawlingIds.length === 0) return
+    const interval = setInterval(() => {
+      fetch(`${API_BASE}/api/sites`)
+        .then((r) => r.ok ? r.json() : [])
+        .then((data) => {
+          setSites(data)
+          setCrawlingIds((prev) =>
+            prev.filter((id) => !data.find((s) => s.id === id && s.last_generated_at))
+          )
+        })
+        .catch(() => {})
+    }, 5000)
+    return () => clearInterval(interval)
+  }, [crawlingIds])
+
+  useEffect(() => {
     fetch(`${API_BASE}/api/sites`)
       .then(async (r) => {
         if (r.ok) return r.json()
@@ -103,16 +119,8 @@ function App() {
       }
       setAddUrls('')
       refetchSites()
-      for (const siteId of createdIds) {
-        setCrawlingIds((prev) => [...prev, siteId])
-        fetch(`${API_BASE}/api/sites/${siteId}/crawl`, { method: 'POST' })
-          .then((r) => r.json().catch(() => ({})))
-          .then(() => refetchSites())
-          .catch(() => {})
-          .finally(() => {
-            setCrawlingIds((prev) => prev.filter((id) => id !== siteId))
-            refetchSites()
-          })
+      if (createdIds.length) {
+        setCrawlingIds((prev) => [...prev, ...createdIds])
       }
     } catch (err) {
       const msg = err.name === 'AbortError'
