@@ -18,7 +18,7 @@ def _next_crawl_at(schedule: str | None) -> str:
     return (datetime.now(timezone.utc) + delta).isoformat()
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, Header, HTTPException, Path as PathParam, Query
+from fastapi import BackgroundTasks, FastAPI, Header, HTTPException, Path as PathParam, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, PlainTextResponse
 from pydantic import BaseModel, field_validator
@@ -272,20 +272,19 @@ def site_crawl(site_id: int = PathParam(..., ge=1)):
 
 
 @app.post("/api/cron/crawl-due")
-def cron_crawl_due(x_cron_secret: str | None = Header(None, alias="X-Cron-Secret")):
+def cron_crawl_due(
+    background_tasks: BackgroundTasks,
+    x_cron_secret: str | None = Header(None, alias="X-Cron-Secret"),
+):
     expected = os.getenv("CRON_SECRET", "").strip()
     if not expected or not x_cron_secret or x_cron_secret != expected:
         raise HTTPException(status_code=401, detail="Invalid or missing cron secret")
     due = db.sites_get_due_for_crawl()
     if not due:
-        return {"crawled": 0, "message": "No sites due for crawl"}
-    results = []
+        return {"queued": 0}
     for site in due:
-        ok, msg = _crawl_site_and_save(site["id"])
-        results.append({"site_id": site["id"], "root_url": site["root_url"], "ok": ok, "message": msg})
-    crawled = sum(1 for r in results if r["ok"])
-    logger.info("Cron crawl-due: %d/%d sites crawled", crawled, len(due))
-    return {"crawled": crawled, "total": len(due), "results": results}
+        background_tasks.add_task(_crawl_site_and_save, site["id"])
+    return {"queued": len(due)}
 
 
 _frontend_dist = _backend_dir.parent / "frontend" / "dist"
