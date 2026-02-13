@@ -43,7 +43,7 @@ cd frontend && npm ci && npm run build
 
 ## Cron job (scheduled re-crawls)
 
-Sites are re-crawled based on their `monitor_schedule` (hourly, daily, weekly). A cron job must call the API to trigger due crawls.
+Sites are re-crawled based on their `monitor_schedule` (15min, hourly, daily, weekly). A cron job must call the API to trigger due crawls.
 
 **Using [cron-job.org](https://cron-job.org) (free):**
 

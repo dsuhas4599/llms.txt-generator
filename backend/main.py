@@ -15,6 +15,7 @@ import db
 logger = logging.getLogger(__name__)
 
 SCHEDULE_INTERVALS = {
+    "15min": timedelta(minutes=15),
     "hourly": timedelta(hours=1),
     "daily": timedelta(days=1),
     "weekly": timedelta(weeks=1),
@@ -22,7 +23,7 @@ SCHEDULE_INTERVALS = {
 
 
 def _next_crawl_at(schedule: str | None) -> str:
-    delta = SCHEDULE_INTERVALS.get((schedule or "daily").lower(), SCHEDULE_INTERVALS["daily"])
+    delta = SCHEDULE_INTERVALS.get((schedule or "15min").lower(), SCHEDULE_INTERVALS["15min"])
     return (datetime.now(timezone.utc) + delta).isoformat()
 
 _backend_dir = Path(__file__).resolve().parent
@@ -119,7 +120,7 @@ def health():
 class SiteCreateRequest(BaseModel):
     url: str
     name: str | None = None
-    monitor_schedule: str | None = "daily"
+    monitor_schedule: str | None = "15min"
 
     @field_validator("url")
     @classmethod
@@ -143,7 +144,7 @@ def sites_create(background_tasks: BackgroundTasks, body: SiteCreateRequest):
         site = db.site_create(
             root_url=body.url,
             name=body.name,
-            monitor_schedule=body.monitor_schedule or "daily",
+            monitor_schedule=body.monitor_schedule or "15min",
         )
         if not site or "id" not in site:
             raise HTTPException(status_code=502, detail="Database error: failed to create site")
