@@ -134,7 +134,9 @@ def crawl_site(base_url: str, options: CrawlOptions | None = None) -> list[PageI
             logger.info("Crawled %d pages so far (current: %s)", len(results), final_url[:80])
 
         for link in _extract_links(html, final_url, origin):
+            logger.info("Link: %s", link)
             if link not in visited and link not in to_visit and path_allowed(link):
+                logger.info("Adding link to visit: %s", link)
                 to_visit.append(link)
 
         if delay > 0:
