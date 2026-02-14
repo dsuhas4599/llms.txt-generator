@@ -96,6 +96,7 @@ def crawl_site(base_url: str, options: CrawlOptions | None = None) -> list[PageI
         for u in sitemap_urls:
             if path_allowed(u):
                 to_visit.append(u)
+    logger.info("Sitemap URLs: %s", sitemap_urls)
     if not to_visit:
         to_visit = [base_url]
     logger.info("Crawl seed: %d URLs to visit (sitemap=%s)", len(to_visit), opts.use_sitemap)
