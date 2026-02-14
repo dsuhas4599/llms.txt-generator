@@ -125,6 +125,7 @@ def crawl_site(base_url: str, options: CrawlOptions | None = None) -> list[PageI
             if final_url != url:
                 visited.add(final_url)
             html = r.text
+            logger.info("HTML: %s", html)
         except Exception:
             continue
 
